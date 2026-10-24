@@ -39,7 +39,7 @@
 <body>
 <main>
   <h1>Đo sức vẽ 3D</h1>
-  <p>Trang này vẽ chính cơ thể 3D của phototofit (Anny) ở các mức chi tiết app dùng: 27 nghìn → 108 nghìn → 432 nghìn → 1,73 triệu tam giác (mức "2 triệu"). Sau đó vẽ nhiều cơ thể cùng lúc để tìm giới hạn của máy. Mất khoảng 1 phút; nên cắm sạc và đóng các tab khác.</p>
+  <p>Trang này vẽ đúng <b>một</b> cơ thể 3D của phototofit (Anny), giống màn 3D của app, rồi tăng dần độ chi tiết: 27 nghìn → 108 nghìn → 432 nghìn → 1,73 triệu tam giác (mức "2 triệu" của app) → 6,9 triệu → 27,7 triệu. Hai mức cuối chỉ để thử sức máy; điện thoại dừng ở 6,9 triệu. Mất khoảng 1 phút; nên cắm sạc và đóng các tab khác.</p>
   <div class="row">
     <button id="go" type="button" disabled>Bắt đầu đo</button>
     <button id="copy" class="secondary" type="button" disabled>Sao chép kết quả</button>
@@ -47,46 +47,56 @@
   <div id="status" role="status">Đang tải…</div>
   <canvas id="c" width="1280" height="720"></canvas>
   <div class="sum" id="sum" hidden>
-    <div class="card"><span>Cơ thể 1,73 triệu tam giác</span><b id="sBody">–</b><span>khung hình/giây</span></div>
-    <div class="card"><span>Giới hạn ở 30 fps</span><b id="s30">–</b><span>tam giác</span></div>
+    <div class="card"><span>Mức app (1,73 triệu tam giác)</span><b id="sBody">–</b><span>khung hình/giây</span></div>
+    <div class="card"><span>Một cơ thể, giới hạn 30 fps</span><b id="s30">–</b><span>tam giác</span></div>
   </div>
   <table id="tbl" hidden>
-    <thead><tr><th>Cảnh</th><th>Tam giác</th><th>fps</th><th>ms/khung</th></tr></thead>
+    <thead><tr><th>Mức</th><th>Tam giác</th><th>fps</th><th>ms/khung</th></tr></thead>
     <tbody></tbody>
   </table>
   <p class="note">Cùng vật liệu và ánh sáng với màn 3D của app, khung vẽ cố định 1280×720 để so được giữa các máy. Bấm "Sao chép kết quả" rồi dán vào chat để trưởng nhóm ghi lại.</p>
   <div id="dev"></div>
 </main>
 <script type="module">
-// How much 3D this device can draw, measured on phototofit's own body: the Anny mesh from ../3d/, Loop-subdivided
-// to the viewer's levels (same rule as src/viewer3d/subdivide.ts), then many copies of the 1.73M body to find the
-// ceiling. Every frame is synced with readPixels, so the time is real GPU work, not capped by vsync.
+// How much 3D this device can draw for ONE body: phototofit's Anny mesh from ../3d/, Loop-subdivided level by level
+// (same rule as src/viewer3d/subdivide.ts). Levels 0-3 are the viewer's; 4-5 only probe the device. Every frame is
+// synced with readPixels, so the time is real GPU work, not capped by vsync.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const $ = (id) => document.getElementById(id);
-const c = $("c"), statusEl = $("status"), KEY = "ptf.bench.v2";
-const COPIES = [2, 4, 8, 16, 32, 64, 128];
+const c = $("c"), statusEl = $("status"), KEY = "ptf.bench.v3";
+const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const MAX_LEVEL = mobile ? 4 : 5; // level 5 needs ~1.5 GB while it is built; phones would lose the tab
+const LABELS = ["Mức 0 · gốc", "Mức 1", "Mức 2", "Mức 3 · app", "Mức 4 · thử sức", "Mức 5 · thử sức"];
 const fmt = (n) => n >= 1e6
-  ? (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: n < 1e7 ? 2 : 0 }) + " triệu"
+  ? (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: n < 1e7 ? 2 : 1 }) + " triệu"
   : Math.round(n / 1e3).toLocaleString("vi-VN") + " nghìn";
 const tick = () => new Promise((r) => setTimeout(r, 30));
 let last = null, body = null, device = {};
 
 // Loop subdivision, same rule as src/viewer3d/subdivide.ts (without skin weights): every triangle → 4.
+// Edges are found with a typed-array hash instead of a Map, so 27M-triangle levels fit in memory.
 function loopSubdivide({ pos, index }) {
-  const nv = pos.length / 3, nt = index.length / 3;
-  const edgeId = new Map(), ea = [], eb = [], o1 = [], o2 = [], triEdge = new Uint32Array(nt * 3);
+  const nv = pos.length / 3, nt = index.length / 3, maxE = Math.ceil(nt * 1.6) + 65536;
+  let cap = 1; while (cap < maxE / 0.7) cap *= 2;
+  const mask = cap - 1, hA = new Int32Array(cap).fill(-1), hB = new Int32Array(cap), hE = new Int32Array(cap);
+  const ea = new Int32Array(maxE), eb = new Int32Array(maxE), o1 = new Int32Array(maxE), o2 = new Int32Array(maxE);
+  const triEdge = new Uint32Array(nt * 3);
+  let ne = 0;
   for (let t = 0; t < nt; t++) for (let k = 0; k < 3; k++) {
-    const a = index[3 * t + k], b = index[3 * t + ((k + 1) % 3)], cc = index[3 * t + ((k + 2) % 3)];
-    const key = a < b ? a * nv + b : b * nv + a;
-    let e = edgeId.get(key);
-    if (e === undefined) { e = ea.length; edgeId.set(key, e); ea.push(Math.min(a, b)); eb.push(Math.max(a, b)); o1.push(cc); o2.push(-1); }
-    else o2[e] = cc;
+    const p = index[3 * t + k], q = index[3 * t + ((k + 1) % 3)], cc = index[3 * t + ((k + 2) % 3)];
+    const a = p < q ? p : q, b = p < q ? q : p;
+    let h = (Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca77)) & mask;
+    while (hA[h] !== -1 && (hA[h] !== a || hB[h] !== b)) h = (h + 1) & mask;
+    let e;
+    if (hA[h] === -1) {
+      if (ne >= maxE) throw new Error("lưới quá lớn");
+      e = ne++; hA[h] = a; hB[h] = b; hE[h] = e; ea[e] = a; eb[e] = b; o1[e] = cc; o2[e] = -1;
+    } else { e = hE[h]; o2[e] = cc; }
     triEdge[3 * t + k] = e;
   }
-  const ne = ea.length;
-  const valence = new Uint32Array(nv), sum = new Float64Array(nv * 3), bsum = new Float64Array(nv * 3), bcount = new Uint8Array(nv);
+  const valence = new Uint32Array(nv), sum = new Float32Array(nv * 3), bsum = new Float32Array(nv * 3), bcount = new Uint8Array(nv);
   for (let e = 0; e < ne; e++) {
     const a = ea[e], b = eb[e], boundary = o2[e] < 0;
     valence[a]++; valence[b]++;
@@ -110,8 +120,9 @@ function loopSubdivide({ pos, index }) {
   const idx = new Uint32Array(nt * 12);
   for (let t = 0; t < nt; t++) {
     const a = index[3 * t], b = index[3 * t + 1], cc = index[3 * t + 2];
-    const ab = nv + triEdge[3 * t], bc = nv + triEdge[3 * t + 1], ca = nv + triEdge[3 * t + 2];
-    idx.set([a, ab, ca, ab, b, bc, ca, bc, cc, ab, bc, ca], 12 * t);
+    const ab = nv + triEdge[3 * t], bc = nv + triEdge[3 * t + 1], ca = nv + triEdge[3 * t + 2], o = 12 * t;
+    idx[o] = a; idx[o + 1] = ab; idx[o + 2] = ca; idx[o + 3] = ab; idx[o + 4] = b; idx[o + 5] = bc;
+    idx[o + 6] = ca; idx[o + 7] = bc; idx[o + 8] = cc; idx[o + 9] = ab; idx[o + 10] = bc; idx[o + 11] = ca;
   }
   return { pos: out, index: idx };
 }
@@ -125,7 +136,7 @@ const keyLight = new THREE.DirectionalLight(0xffffff, 2.2); keyLight.position.se
 const rimLight = new THREE.DirectionalLight(0xbfd0ff, 1.6); rimLight.position.set(-2, 1.5, -2.5);
 scene.add(keyLight, rimLight, new THREE.HemisphereLight(0xffffff, 0x1c1c1e, 0.35));
 const mat = new THREE.MeshStandardMaterial({ color: "#a1a1a6", roughness: 0.62, metalness: 0 });
-const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.05, 500);
+const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.05, 50);
 
 function geom(m) {
   const g = new THREE.BufferGeometry();
@@ -134,11 +145,9 @@ function geom(m) {
   g.computeVertexNormals();
   return g;
 }
-// Frame a grid W x H (metres) centred on the origin.
-function frame(W, H) {
-  const t = Math.tan(THREE.MathUtils.degToRad(15));
-  const dist = 1.08 * Math.max(H / 2 / t, W / 2 / (t * camera.aspect));
-  camera.position.set(0, 0, dist); camera.lookAt(0, 0, 0); camera.updateProjectionMatrix();
+function frameBody() {
+  const t = Math.tan(THREE.MathUtils.degToRad(15)), W = body.size.x * 1.15, H = body.size.y * 1.05;
+  camera.position.set(0, 0, 1.08 * Math.max(H / 2 / t, W / 2 / (t * camera.aspect))); camera.lookAt(0, 0, 0);
 }
 function timeFrames(update) {
   const draw = (a) => { update(a); renderer.render(scene, camera); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
@@ -148,21 +157,20 @@ function timeFrames(update) {
   if (gl.isContextLost()) throw new Error("mất WebGL (GPU quá tải)");
   return (performance.now() - t) / F;
 }
-const row = (label, tris, ms) => ({ label, tris, msPerFrame: +ms.toFixed(2), fps: Math.round(1000 / ms) });
 
-// Triangles at 30 fps: interpolated between the two measured scenes around it.
+// Triangles at 30 fps for one body: interpolated between the two measured levels around it.
 function at30(rows) {
-  const s = [...rows].sort((a, b) => a.tris - b.tris), i = s.findIndex((r) => r.fps < 30);
-  if (i === -1) return s.length ? `≥ ${fmt(s[s.length - 1].tris)}` : "–";
-  if (i === 0) return `< ${fmt(s[0].tris)}`;
-  const a = s[i - 1], b = s[i], k = (1000 / 30 - a.msPerFrame) / (b.msPerFrame - a.msPerFrame);
+  const i = rows.findIndex((r) => r.fps < 30);
+  if (i === -1) return rows.length ? `≥ ${fmt(rows[rows.length - 1].tris)}` : "–";
+  if (i === 0) return `< ${fmt(rows[0].tris)}`;
+  const a = rows[i - 1], b = rows[i], k = (1000 / 30 - a.msPerFrame) / (b.msPerFrame - a.msPerFrame);
   return `≈ ${fmt(a.tris + k * (b.tris - a.tris))}`;
 }
 function show(rows) {
   $("tbl").hidden = $("sum").hidden = rows.length === 0;
-  $("tbl").tBodies[0].innerHTML = rows.map((r) => `<tr><td>${r.label}</td><td>${fmt(r.tris)}</td><td>${r.fps}</td><td>${r.msPerFrame.toLocaleString("vi-VN")}</td></tr>`).join("");
-  const top = rows.find((r) => r.label.endsWith("mức 3"));
-  $("sBody").textContent = top ? String(top.fps) : "–";
+  $("tbl").tBodies[0].innerHTML = rows.map((r) => `<tr><td>${LABELS[r.level]}</td><td>${fmt(r.tris)}</td><td>${r.fps}</td><td>${r.msPerFrame.toLocaleString("vi-VN")}</td></tr>`).join("");
+  const app = rows.find((r) => r.level === 3);
+  $("sBody").textContent = app ? String(app.fps) : "–";
   $("s30").textContent = at30(rows);
   $("copy").disabled = rows.length === 0;
 }
@@ -175,39 +183,29 @@ async function run() {
   show(rows);
   let stop = "", lv = body, g = null;
   try {
-    // 1. One body at the viewer's four levels.
-    frame(body.size.x * 1.15, body.size.y * 1.05);
-    for (let i = 0; i <= 3; i++) {
+    frameBody();
+    for (let i = 0; i <= MAX_LEVEL; i++) {
       if (i > 0) { statusEl.textContent = `Đang chia nhỏ cơ thể lên mức ${i}…`; await tick(); lv = loopSubdivide(lv); }
-      statusEl.textContent = `Đang đo cơ thể mức ${i} (${fmt(lv.index.length / 3)} tam giác)…`; await tick();
+      const tris = lv.index.length / 3;
+      statusEl.textContent = `Đang đo mức ${i} (${fmt(tris)} tam giác)…`; await tick();
       if (g) g.dispose();
       g = geom(lv);
       const mesh = new THREE.Mesh(g, mat);
       scene.add(mesh);
       const ms = timeFrames((a) => { mesh.rotation.y = a; });
       scene.remove(mesh);
-      rows.push(row(`1 cơ thể · mức ${i}`, lv.index.length / 3, ms)); save({ ...last, rows }); show(rows);
-    }
-    const top = rows[rows.length - 1];
-    if (top.fps < 30) stop = "Máy này chưa mượt ở mức 3; app sẽ tự dùng mức thấp hơn (chế độ máy yếu).";
-    // 2. Many 1.73M bodies at once (one mesh, drawn as instances) until it drops under 30 fps.
-    else for (const k of COPIES) {
-      statusEl.textContent = `Đang đo ${k} cơ thể (${fmt(k * top.tris)} tam giác)…`; await tick();
-      const sx = body.size.x * 1.1, sy = body.size.y * 1.08;
-      const cols = Math.ceil(Math.sqrt((k * camera.aspect * sy) / sx)), rowsN = Math.ceil(k / cols);
-      const spots = Array.from({ length: k }, (_, i) => new THREE.Vector3(((i % cols) - (cols - 1) / 2) * sx, ((rowsN - 1) / 2 - Math.floor(i / cols)) * sy, 0));
-      const inst = new THREE.InstancedMesh(g, mat, k); inst.frustumCulled = false;
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
-      frame(cols * sx, rowsN * sy);
-      scene.add(inst);
-      const ms = timeFrames((a) => { q.setFromAxisAngle(up, a); spots.forEach((p, i) => inst.setMatrixAt(i, m4.compose(p, q, one))); inst.instanceMatrix.needsUpdate = true; });
-      scene.remove(inst); inst.dispose();
-      const r = row(`${k} cơ thể · mức 3`, k * top.tris, ms);
+      const r = { level: i, tris, msPerFrame: +ms.toFixed(2), fps: Math.round(1000 / ms) };
       rows.push(r); save({ ...last, rows }); show(rows);
-      if (r.fps < 30) { stop = `Dừng ở ${k} cơ thể (${fmt(r.tris)} tam giác): đã xuống dưới 30 fps.`; break; }
+      if (r.fps < 30) {
+        stop = i <= 3 ? `Máy này xuống dưới 30 fps ở mức ${i}; app sẽ tự dùng mức thấp hơn (chế độ máy yếu).`
+          : `Dừng ở mức ${i} (${fmt(tris)} tam giác): đã xuống dưới 30 fps.`;
+        break;
+      }
     }
-    if (!stop) stop = `Xong: máy vẫn trên 30 fps với ${COPIES[COPIES.length - 1]} cơ thể.`;
+    if (!stop) stop = mobile ? `Xong. Điện thoại dừng ở mức 4 (${fmt(lv.index.length / 3)}) để không bị tắt tab vì hết bộ nhớ.`
+      : `Xong: một cơ thể ${fmt(lv.index.length / 3)} tam giác vẫn trên 30 fps.`;
   } catch (e) { stop = `Dừng: ${e.message || e}.`; }
+  if (g) g.dispose();
   save({ ...last, rows, done: true, note: stop });
   statusEl.textContent = stop;
   $("go").disabled = false; $("go").textContent = "Đo lại";
@@ -221,7 +219,7 @@ $("copy").onclick = async () => {
 
 // Device line, the body mesh, and the last run (a run cut short still shows what it measured).
 const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-device = { renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), ua: navigator.userAgent, cores: navigator.hardwareConcurrency, memoryGB: navigator.deviceMemory, dpr: devicePixelRatio, canvas: [c.width, c.height] };
+device = { renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), ua: navigator.userAgent, cores: navigator.hardwareConcurrency, memoryGB: navigator.deviceMemory, dpr: devicePixelRatio, canvas: [c.width, c.height], mobile };
 $("dev").textContent = `${device.renderer} · ${device.cores ?? "?"} luồng CPU${device.memoryGB ? ` · ${device.memoryGB} GB RAM` : ""}`;
 try {
   const prev = JSON.parse(localStorage.getItem(KEY) || "null");
@@ -240,9 +238,9 @@ try {
   body = { pos, index, size: box.getSize(new THREE.Vector3()) };
   // Show the body before the run starts.
   const preview = new THREE.Mesh(geom(body), mat);
-  frame(body.size.x * 1.15, body.size.y * 1.05); scene.add(preview); renderer.render(scene, camera); scene.remove(preview);
+  frameBody(); scene.add(preview); renderer.render(scene, camera); scene.remove(preview); preview.geometry.dispose();
   $("go").disabled = false;
-  statusEl.textContent = last ? (last.done ? `Kết quả lần đo trước. ${last.note ?? ""}` : "Lần đo trước dừng giữa chừng, có thể máy hết bộ nhớ ở cảnh kế tiếp.") : "Sẵn sàng.";
+  statusEl.textContent = last ? (last.done ? `Kết quả lần đo trước. ${last.note ?? ""}` : "Lần đo trước dừng giữa chừng, có thể máy hết bộ nhớ ở mức kế tiếp.") : "Sẵn sàng.";
 } catch (e) { statusEl.textContent = `Không tải được cơ thể 3D: ${e.message || e}.`; }
 </script>
 </body>
