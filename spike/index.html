@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Đo vòng live (bản thử)</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b22; --line: #2a2f3a; --text: #e8eaf0; --muted: #9aa3b2;
+    --accent: #4cc38a; --warn: #f0b429; --bad: #ef5d5d;
+    --chest: #5aa9ff; --waist: #f0b429; --hip: #c77dff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; padding: 12px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 8px; } }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; min-height: 240px; }
+  canvas { display: block; width: 100%; height: auto; max-height: 82vh; object-fit: contain; }
+  video { display: none; }
+  #hud { position: absolute; left: 0; right: 0; top: 0; padding: 10px 14px 18px; text-align: center;
+    background: linear-gradient(#000d, #0000); text-shadow: 0 1px 3px #000; }
+  #banner { font-size: 20px; font-weight: 600; }
+  #status { font-size: 15px; margin-top: 4px; }
+  #angle { position: absolute; right: 10px; bottom: 10px; background: #000a; padding: 6px 10px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  label { color: var(--muted); font-size: 13px; }
+  input[type=number] { width: 80px; background: #0d0f14; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 15px; }
+  select, button { background: #232837; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 14px; }
+  button.primary { background: var(--accent); color: #062a18; border: 0; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.val { font-size: 20px; font-weight: 700; }
+  td.locked { color: var(--accent); }
+  .cov { display: grid; grid-template-columns: repeat(18, 1fr); gap: 1px; width: 100%; min-width: 90px; height: 8px; margin-top: 3px; }
+  .cov i { background: #2a2f3a; }
+  .cov i.on { background: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; }
+  details { margin-top: 10px; }
+  .small { font-size: 12px; color: var(--muted); }
+  .diff-bad { color: var(--bad); } .diff-ok { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <section class="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="canvas" width="720" height="1280"></canvas>
+    <div id="hud">
+      <div id="banner">Nhập chiều cao rồi bấm Bắt đầu</div>
+      <div id="status"></div>
+    </div>
+    <div id="angle">góc: –</div>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <label>Chiều cao (cm, chân trần)</label>
+      <input id="height" type="number" min="120" max="220" step="0.5" value="170">
+      <label>Cân nặng (kg, không bắt buộc)</label>
+      <input id="weight" type="number" min="30" max="200" step="0.5" placeholder="kg">
+    </div>
+    <div class="row">
+      <select id="camera"><option value="environment">Camera sau</option><option value="user">Camera trước</option></select>
+      <select id="model">
+        <option value="full">Model full</option><option value="heavy">Model heavy (chậm, chính xác hơn)</option><option value="lite">Model lite (nhanh)</option>
+      </select>
+      <label><input id="speech" type="checkbox" checked> Giọng nói</label>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">Bắt đầu</button>
+      <button id="reset">Đo lại</button>
+    </div>
+    <div class="row">
+      <label>Hoặc dùng video quay sẵn:</label>
+      <input id="file" type="file" accept="video/*">
+    </div>
+
+    <table>
+      <thead><tr><th>Số đo</th><th>Live (cm)</th><th>Elip 2 góc</th><th>Thước dây</th><th>Lệch</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="small">Live = π × chiều rộng trung bình qua các góc xoay. Elip = cách cũ chỉ dùng góc trước + góc nghiêng, để so sánh.</p>
+
+    <div class="row">
+      <button id="save">Lưu lần đo</button>
+      <button id="csv">Tải CSV</button>
+      <button id="clear">Xoá dữ liệu đã lưu</button>
+      <span id="saved" class="small"></span>
+    </div>
+
+    <details>
+      <summary>Chỉnh mức cắt (nếu vạch màu không nằm đúng chỗ)</summary>
+      <p class="small">Tỉ lệ tính từ vai (0) xuống hông (1); hông và đùi tính từ khớp hông (0) xuống gối (1).</p>
+      <div class="row"><label>Ngực</label><input id="lvChest" type="number" step="0.01" value="0.30"></div>
+      <div class="row"><label>Eo</label><input id="lvWaist" type="number" step="0.01" value="0.66"></div>
+      <div class="row"><label>Hông (mông)</label><input id="lvHip" type="number" step="0.01" value="0.12"></div>
+    </details>
+
+    <details>
+      <summary>Cách thử với thước dây</summary>
+      <ol class="small">
+        <li>Mặc đồ bó, buộc tóc gọn, đi chân trần. Nền phía sau càng trơn càng tốt, đủ sáng.</li>
+        <li>Dựng máy cố định, quay dọc, thẳng đứng, ngang tầm hông. Đứng cách khoảng 2 m.</li>
+        <li>Bấm Bắt đầu. Trên màn hình có khung hình người nét đứt: tiến/lùi/bước ngang theo lời nhắc cho tới khi người khớp khung và khung chuyển <b>xanh</b>.</li>
+        <li>Đứng thẳng mặt vào camera, hai tay dang chữ A (cách thân ~45°), hai chân rộng bằng hông. Thở ra nhẹ, không hóp bụng. Giữ yên ~1 giây trong khung xanh.</li>
+        <li>Số ước tính hiện ngay trên người. Khi nghe "Xoay chậm sang ngang", xoay chậm ¼ vòng tới khi đứng nghiêng hẳn (~4–5 giây), giữ nguyên tư thế tay, không bước khỏi chỗ; giữ nghiêng tới khi nghe "ting" và số chuyển xanh.</li>
+        <li>Khi các số đo chuyển xanh (đã khoá), nhờ người đo bằng thước dây và nhập vào cột "Thước dây", rồi bấm Lưu.</li>
+      </ol>
+    </details>
+  </section>
+</main>
+
+<script>
+  // Show any script error on screen, so a broken page never looks like it is just waiting.
+  const showErr = (msg) => { const b = document.getElementById("banner"); if (b) b.textContent = "Lỗi: " + msg; };
+  window.addEventListener("error", (e) => showErr(e.message));
+  window.addEventListener("unhandledrejection", (e) => showErr(e.reason?.message || e.reason));
+</script>
+<script type="module">
+import { FilesetResolver, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+// ?v= busts phone caches from before serve.py sent no-store; bump it with girth.js/scan.js changes.
+import { NBINS, ellipseGirth, median } from "./girth.js?v=6";
+import { LEVELS, GUIDE, newScan, scanFrame, girthOf, coveredBins } from "./scan.js?v=7";
+
+const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL = (v) =>
+  `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${v}/float16/1/pose_landmarker_${v}.task`;
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
+
+let landmarker = null, stream = null, running = false;
+let state = newScan();
+const speech = { last: "", at: 0, pending: "", pendingSince: 0 };
+
+// ---------- UI ----------
+function buildRows() {
+  $("rows").innerHTML = LEVELS.map((l) => `
+    <tr>
+      <td><span style="color:${l.color}">●</span> ${l.name}<div class="cov" id="cov-${l.key}">${"<i></i>".repeat(NBINS)}</div></td>
+      <td class="val" id="val-${l.key}">–<div class="sub" id="pm-${l.key}"></div></td>
+      <td id="ell-${l.key}">–</td>
+      <td><input type="number" step="0.1" id="tape-${l.key}" placeholder="cm"></td>
+      <td id="diff-${l.key}">–</td>
+    </tr>`).join("");
+  for (const l of LEVELS) $("tape-" + l.key).addEventListener("input", renderTable);
+}
+buildRows();
+
+// The banner shows guidance at once; the voice only says it once it has held for 0.8 s, so a person on the edge
+// of the outline doesn't hear "step back / that's it / step back" flip-flopping.
+function say(text) {
+  $("banner").textContent = text;
+  if (!$("speech").checked || !("speechSynthesis" in window)) return;
+  const now = performance.now();
+  if (text !== speech.pending) { speech.pending = text; speech.pendingSince = now; return; }
+  if (now - speech.pendingSince < 800) return;
+  if (text === speech.last && now - speech.at < 8000) return;
+  if (now - speech.at < 2500) return;
+  speech.last = text; speech.at = now;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "vi-VN";
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+function results() {
+  const out = {};
+  for (const l of LEVELS) {
+    const r = state.locked[l.key] || girthOf(state.bins[l.key]);
+    const b = state.bins[l.key];
+    const front = b[0].length ? median(b[0]) : (b[1].length ? median(b[1]) : NaN);
+    const side = b[NBINS - 1].length ? median(b[NBINS - 1]) : (b[NBINS - 2].length ? median(b[NBINS - 2]) : NaN);
+    out[l.key] = { r, ellipse: isFinite(front) && isFinite(side) ? ellipseGirth(front, side) : NaN, front, side };
+  }
+  return out;
+}
+
+function renderTable() {
+  const res = results();
+  for (const l of LEVELS) {
+    const { r, ellipse } = res[l.key];
+    const cells = $("cov-" + l.key).children;
+    state.bins[l.key].forEach((b, i) => cells[i].classList.toggle("on", b.length > 0));
+    const v = $("val-" + l.key);
+    v.firstChild.textContent = r ? r.girth.toFixed(1) : "–";
+    v.classList.toggle("locked", !!state.locked[l.key]);
+    $("pm-" + l.key).textContent = r ? `±${r.plusMinus.toFixed(1)} · phủ ${(r.coverage * 100) | 0}%${state.locked[l.key] ? " · đã khoá" : ""}` : "";
+    $("ell-" + l.key).textContent = isFinite(ellipse) ? ellipse.toFixed(1) : "–";
+    const tape = parseFloat($("tape-" + l.key).value);
+    const d = $("diff-" + l.key);
+    if (r && isFinite(tape)) {
+      const diff = r.girth - tape;
+      d.textContent = (diff > 0 ? "+" : "") + diff.toFixed(1);
+      d.className = Math.abs(diff) <= 2 ? "diff-ok" : "diff-bad";
+    } else d.textContent = "–";
+  }
+}
+
+// ---------- capture ----------
+// fileUrl: play a recorded video through the same pipeline instead of the live camera.
+let fromFile = false;
+async function start(fileUrl) {
+  const H = parseFloat($("height").value);
+  if (!(H > 100 && H < 250)) { say("Nhập chiều cao trước"); return; }
+  stop();
+  resetScan();
+  // Audio must be unlocked inside the tap on iPhone.
+  try { audio ??= new (window.AudioContext || window.webkitAudioContext)(); audio.resume?.(); } catch {}
+  $("start").disabled = true;
+  say("Đang tải mô hình…");
+  try {
+    if (!landmarker || landmarker.variant !== $("model").value) {
+      const fileset = await FilesetResolver.forVisionTasks(WASM);
+      const opts = (delegate) => ({
+        baseOptions: { modelAssetPath: MODEL_URL($("model").value), delegate },
+        runningMode: "VIDEO", numPoses: 1, outputSegmentationMasks: true,
+      });
+      try { landmarker = await PoseLandmarker.createFromOptions(fileset, opts("GPU")); }
+      catch { landmarker = await PoseLandmarker.createFromOptions(fileset, opts("CPU")); }
+      landmarker.variant = $("model").value;
+    }
+
+    fromFile = !!fileUrl;
+    if (fromFile) {
+      video.srcObject = null;
+      video.src = fileUrl;
+      video.loop = false;
+    } else {
+      video.removeAttribute("src");
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: $("camera").value, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      video.srcObject = stream;
+    }
+    await video.play();
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    running = true;
+    lastTs = -1;
+    say(fromFile ? "Đang phân tích video…" : "Đứng thẳng, mặt nhìn camera, dang tay chữ A");
+    requestAnimationFrame(loop);
+  } catch (e) {
+    say("Lỗi: " + e.message);
+    $("start").disabled = false;
+  }
+}
+
+let lastTs = -1;
+function loop() {
+  if (!running) return;
+  // Video files are timed by media time, so rotation speed is real-world speed whatever the playback rate.
+  const ts = fromFile ? video.currentTime * 1000 : performance.now();
+  if (video.readyState >= 2 && ts > lastTs) {
+    lastTs = ts;
+    landmarker.detectForVideo(video, ts, (res) => onResult(res, ts));
+  }
+  if (fromFile && video.ended) {
+    running = false;
+    $("start").disabled = false;
+    const done = LEVELS.filter((l) => state.locked[l.key]).length;
+    say(`Hết video: khoá được ${done}/3 số đo`);
+    return;
+  }
+  requestAnimationFrame(loop);
+}
+
+function status(text) { $("status").textContent = text; }
+
+// Body outline the person stands into: an A-pose figure spanning GUIDE.top..GUIDE.bottom of the frame.
+// Points are the figure's right half, in units of body height from the top of the head; the left half mirrors it.
+const GUIDE_HALF = [
+  [0.03, 0.13], [0.04, 0.16], [0.11, 0.18], [0.135, 0.205], [0.27, 0.42], [0.25, 0.445], [0.105, 0.27],
+  [0.085, 0.4], [0.11, 0.52], [0.085, 0.95], [0.1, 1.0], [0.035, 1.0], [0.03, 0.75], [0, 0.53],
+];
+function drawGuide(vw, vh, color, filled) {
+  const top = GUIDE.top * vh, h = (GUIDE.bottom - GUIDE.top) * vh, cx = GUIDE.cx * vw;
+  const pt = ([x, y]) => [cx + x * h, top + y * h];
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color + "33";
+  ctx.lineWidth = Math.max(3, vh / 220);
+  ctx.lineJoin = ctx.lineCap = "round";
+  ctx.setLineDash(filled ? [] : [vh / 60, vh / 90]);
+  ctx.beginPath();
+  const [hx, hy] = pt([0, 0.065]);
+  ctx.arc(hx, hy, 0.065 * h, 0, Math.PI * 2);
+  ctx.moveTo(...pt([-GUIDE_HALF[0][0], GUIDE_HALF[0][1]]));
+  for (const p of GUIDE_HALF) ctx.lineTo(...pt(p));
+  for (const [x, y] of [...GUIDE_HALF].reverse()) ctx.lineTo(...pt([-x, y]));
+  if (filled) ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- show effects ----------
+const shown = {};      // number on each tag, eased toward the live value so it rolls instead of jumping
+const ringAt = {};     // smoothed ring position per level {cx, cy, rx}: landmarks jitter a few pixels every frame
+const lockedAt = {};   // when each level locked (performance.now), for the pulse and the one-time chime
+let audio = null;
+const cm = (v, digits = 1) => v.toFixed(digits).replace(".", ",");
+
+function chime() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  for (const [f, d] of [[880, 0], [1320, 0.1]]) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t + d);
+    g.gain.exponentialRampToValueAtTime(0.25, t + d + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35);
+    o.connect(g).connect(audio.destination);
+    o.start(t + d); o.stop(t + d + 0.4);
+  }
+}
+
+// Speak a result right away (queued, not cancelled), and keep guidance quiet for a moment after it.
+function announce(text) {
+  if (!$("speech").checked || !("speechSynthesis" in window)) return;
+  speech.last = text; speech.at = performance.now() + 1500;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "vi-VN";
+  speechSynthesis.speak(u);
+}
+
+function celebrateNewLocks() {
+  for (const l of LEVELS) {
+    const g = state.locked[l.key];
+    if (!g || lockedAt[l.key]) continue;
+    lockedAt[l.key] = performance.now();
+    chime();
+    announce(`${l.name} ${cm(g.girth)} xăng ti mét`);
+  }
+}
+
+// Each level is a thin tape ring around the body. The ring wraps further as the turn covers more angles and
+// closes when the number locks. The number sits beside the ring on a short leader line, with no box:
+// a small caption ("EO"), the number, and a faint ± while it is still settling.
+// Instant guess "~78" (dimmed) → running "78,4 ±1,6" → locked "78,4" with a ✓ and an expanding glow ring.
+const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+function drawTapes(r, vw, vh, mw, mh, mirror) {
+  const now = performance.now(), fs = Math.round(vh / 30), lw = Math.max(2, vh / 420);
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const sp of r.spans) {
+    const l = LEVELS.find((x) => x.key === sp.key);
+    const v = r.live[sp.key];
+    const locked = !!state.locked[sp.key];
+    // Screen-space ring (the picture is mirrored for the front camera; the ring is symmetric).
+    let x0 = sp.left * (vw / mw), x1 = (sp.right + 1) * (vw / mw);
+    if (mirror) [x0, x1] = [vw - x1, vw - x0];
+    const target = { cx: (x0 + x1) / 2, cy: (sp.row + 0.5) * (vh / mh), rx: (x1 - x0) / 2 + lw * 2 };
+    const prev = ringAt[sp.key];
+    // Ease toward the new position; jump if the person moved a lot (e.g. stepped back in).
+    const jump = !prev || Math.abs(prev.cx - target.cx) + Math.abs(prev.cy - target.cy) > vh * 0.08;
+    const k = jump ? 1 : 0.3;
+    const cur = jump ? target : { cx: prev.cx + (target.cx - prev.cx) * k, cy: prev.cy + (target.cy - prev.cy) * k, rx: prev.rx + (target.rx - prev.rx) * k };
+    ringAt[sp.key] = cur;
+    const { cx, cy, rx } = cur, ry = rx * 0.16;
+    const bins = state.bins[sp.key];
+    const progress = locked ? 1 : bins.filter((b) => b.length).length / bins.length;
+
+    // Faint full ring, then the wrapped part from the front centre around, glowing in the level colour.
+    ctx.setLineDash([]);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = "#ffffff40";
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    if (progress > 0) {
+      ctx.shadowColor = l.color; ctx.shadowBlur = lw * 5;
+      ctx.strokeStyle = locked ? "#ffffff" : l.color;
+      ctx.lineWidth = lw * 1.6;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI / 2, Math.PI / 2 + progress * Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    // Lock moment: a ring that grows and fades over 0.8 s.
+    const age = lockedAt[sp.key] ? (now - lockedAt[sp.key]) / 800 : 1;
+    if (age < 1) {
+      ctx.strokeStyle = l.color; ctx.globalAlpha = 1 - age; ctx.lineWidth = lw * 2;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx * (1 + 0.35 * age), ry * (1 + 0.35 * age), 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (!v) continue;
+
+    shown[sp.key] = shown[sp.key] == null ? v.value : shown[sp.key] + (v.value - shown[sp.key]) * 0.25;
+    const num = v.kind === "quick" ? "~" + cm(shown[sp.key], 0) : cm(locked ? v.value : shown[sp.key]);
+    const pm = v.kind === "scanning" ? `±${cm(v.pm)}` : "";
+
+    // Measure the text block, then put it right of the ring if it fits, else left.
+    ctx.font = `700 ${fs}px ${FONT}`;
+    const numW = ctx.measureText(num).width;
+    ctx.font = `500 ${Math.round(fs * 0.5)}px ${FONT}`;
+    const unitW = ctx.measureText(" cm " + pm).width;
+    const blockW = numW + unitW, lead = fs * 0.7;
+    const right = cx + rx + lead + blockW < vw - 6;
+    const ax = right ? cx + rx : cx - rx;                 // ring edge
+    const tx = right ? ax + lead : ax - lead - blockW;     // text start
+
+    ctx.shadowColor = "#000000cc"; ctx.shadowBlur = fs * 0.35;
+    // Leader line with a dot on the ring.
+    ctx.strokeStyle = "#ffffffcc"; ctx.lineWidth = Math.max(1.5, lw * 0.7);
+    ctx.beginPath(); ctx.moveTo(ax, cy); ctx.lineTo(right ? tx - fs * 0.15 : tx + blockW + fs * 0.15, cy); ctx.stroke();
+    ctx.fillStyle = locked ? "#ffffff" : l.color;
+    ctx.beginPath(); ctx.arc(ax, cy, lw * 1.8, 0, Math.PI * 2); ctx.fill();
+
+    // Caption above the line, number and unit below it.
+    ctx.textBaseline = "bottom";
+    ctx.font = `700 ${Math.round(fs * 0.42)}px ${FONT}`;
+    ctx.fillStyle = l.color;
+    ctx.fillText((locked ? "✓ " : "") + l.name.toUpperCase(), tx, cy - fs * 0.12);
+    ctx.textBaseline = "top";
+    ctx.globalAlpha = v.kind === "quick" ? 0.75 : 1;
+    ctx.font = `700 ${fs}px ${FONT}`;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(num, tx, cy + fs * 0.05);
+    ctx.font = `500 ${Math.round(fs * 0.5)}px ${FONT}`;
+    ctx.fillStyle = "#ffffffcc";
+    ctx.fillText(" cm", tx + numW, cy + fs * 0.42);
+    if (pm) { ctx.fillStyle = "#ffffff80"; ctx.fillText(" " + pm, tx + numW + ctx.measureText(" cm").width, cy + fs * 0.42); }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+// A glowing line sweeping up and down the body while it is being measured.
+function drawSweep(lm, ext, vw, vh, mh) {
+  const xs = lm.map((p) => p.x);
+  const xa = (Math.min(...xs) - 0.04) * vw, xb = (Math.max(...xs) + 0.04) * vw;
+  const top = ext.top * (vh / mh), bottom = ext.bottom * (vh / mh);
+  const y = top + (bottom - top) * (0.5 + 0.5 * Math.sin(performance.now() / 450));
+  const band = vh / 40;
+  const g = ctx.createLinearGradient(0, y - band, 0, y + band);
+  g.addColorStop(0, "#38e1ff00"); g.addColorStop(0.5, "#38e1ff88"); g.addColorStop(1, "#38e1ff00");
+  ctx.fillStyle = g;
+  ctx.fillRect(xa, y - band, xb - xa, band * 2);
+  ctx.strokeStyle = "#9ff3ff"; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb, y); ctx.stroke();
+}
+
+// Quarter-circle turn gauge: 0° (facing the camera) at the top to 90° (side-on) at the right; green where measured.
+function drawGauge(yaw, vw, vh) {
+  const R = vh * 0.07, cx = vw * 0.06 + 10, cy = vh * 0.9;
+  const covered = coveredBins(state), n = covered.length;
+  ctx.save();
+  ctx.lineCap = "butt";
+  ctx.lineWidth = R * 0.12;
+  for (let i = 0; i < n; i++) {
+    const a0 = -Math.PI / 2 + (i / n) * (Math.PI / 2) + 0.01, a1 = -Math.PI / 2 + ((i + 1) / n) * (Math.PI / 2) - 0.01;
+    ctx.strokeStyle = covered[i] ? "#4cc38a" : "#ffffff33";
+    ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+  }
+  if (isFinite(yaw)) {
+    const a = -Math.PI / 2 + (Math.min(90, yaw) / 90) * (Math.PI / 2);
+    ctx.strokeStyle = "#ffffffdd"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * R * 1.1, cy + Math.sin(a) * R * 1.1); ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = "#ffffffcc";
+  ctx.shadowColor = "#000000cc"; ctx.shadowBlur = 6;
+  ctx.font = `600 ${Math.round(vh / 64)}px ${FONT}`;
+  ctx.textBaseline = "bottom";
+  ctx.fillText("XOAY ¼ VÒNG →", cx - 4, cy - R * 1.2);
+  ctx.restore();
+}
+
+function resetScan() {
+  state = newScan();
+  for (const k of Object.keys(shown)) delete shown[k];
+  for (const k of Object.keys(ringAt)) delete ringAt[k];
+  for (const k of Object.keys(lockedAt)) delete lockedAt[k];
+  renderTable();
+}
+
+// For checking the overlay layout without a camera.
+window.__overlay = { drawGuide, drawTapes, drawSweep, drawGauge, ctx, getState: () => state, setState: (s) => { state = s; } };
+
+const frameTimes = [];
+function onResult(res, ts) {
+  try { drawFrame(res, ts); }
+  catch (e) { say("Lỗi: " + e.message); }
+}
+
+function drawFrame(res, ts) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const mirror = !fromFile && $("camera").value === "user";
+  frameTimes.push(performance.now());
+  while (frameTimes.length > 15) frameTimes.shift();
+  const fps = frameTimes.length > 1 ? (1000 * (frameTimes.length - 1)) / (frameTimes.at(-1) - frameTimes[0]) : 0;
+
+  ctx.save();
+  if (mirror) { ctx.translate(vw, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  const lm = res.landmarks?.[0], wl = res.worldLandmarks?.[0], maskObj = res.segmentationMasks?.[0];
+  if (!lm || !wl || !maskObj) {
+    if (state.phase === "front") drawGuide(vw, vh, "#ffffff", false);
+    ctx.restore();
+    say("Không thấy người trong khung");
+    status("Bước 1/3 · đứng vào khung hình người");
+    return;
+  }
+
+  const mw = maskObj.width, mh = maskObj.height;
+  const r = scanFrame(state, { lm, wl, mask: maskObj.getAsFloat32Array(), mw, mh, vw, vh, ts }, {
+    heightCm: parseFloat($("height").value),
+    weightKg: parseFloat($("weight").value),
+    lv: { chest: parseFloat($("lvChest").value), waist: parseFloat($("lvWaist").value), hip: parseFloat($("lvHip").value) },
+  });
+  if (r.say) say(r.say);
+  status(r.status);
+
+  // The outline: white until the person fits it, then green; faint while turning, to stay on the spot.
+  const allLocked = LEVELS.every((l) => state.locked[l.key]);
+  if (state.phase === "front") drawGuide(vw, vh, r.fit ? "#4cc38a" : "#ffffff", r.fit);
+  else if (!allLocked) { ctx.globalAlpha = 0.2; drawGuide(vw, vh, "#4cc38a", false); ctx.globalAlpha = 1; }
+
+  // Only show where the head or feet are cut off; nothing when the framing is fine.
+  if (r.ext) {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ef5d5d";
+    for (const [row, cut] of [[r.ext.top, r.headCut], [r.ext.bottom, r.feetCut]]) {
+      if (!cut) continue;
+      const y = (row + 0.5) * (vh / mh);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(vw, y); ctx.stroke();
+    }
+  }
+  if (state.phase === "rotate" && !allLocked && r.ext) drawSweep(lm, r.ext, vw, vh, mh);
+  ctx.restore();
+
+  celebrateNewLocks();
+  drawTapes(r, vw, vh, mw, mh, mirror);
+  if (state.phase === "rotate" && !allLocked) drawGauge(r.yaw, vw, vh);
+
+  // Debug line for screen recordings: angle, turn speed, frame rate, scale, camera size.
+  $("angle").textContent = `góc ${isFinite(r.yaw) ? r.yaw.toFixed(0) : "–"}° · ${r.speed.toFixed(0)}°/s · ${fps.toFixed(0)} fps · ` +
+    `${isFinite(r.cmPerVideoPx) ? (1 / r.cmPerVideoPx).toFixed(1) : "–"} px/cm · ${vw}×${vh}`;
+  window.__girth = { state, r };
+  renderTable();
+}
+
+function stop() {
+  running = false;
+  stream?.getTracks().forEach((t) => t.stop());
+  $("start").disabled = false;
+}
+
+// ---------- saving ----------
+const KEY = "phototofit-live-girth-sessions";
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } };
+const store = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
+const showCount = () => ($("saved").textContent = `${load().length} lần đã lưu`);
+
+$("save").onclick = () => {
+  const res = results();
+  const row = { time: new Date().toISOString(), height: $("height").value, model: $("model").value, camera: $("camera").value };
+  for (const l of LEVELS) {
+    const { r, ellipse, front, side } = res[l.key];
+    Object.assign(row, {
+      [`${l.key}_live`]: r?.girth?.toFixed(1) ?? "", [`${l.key}_pm`]: r?.plusMinus?.toFixed(1) ?? "",
+      [`${l.key}_coverage`]: r ? r.coverage.toFixed(2) : "", [`${l.key}_locked`]: !!state.locked[l.key],
+      [`${l.key}_ellipse`]: isFinite(ellipse) ? ellipse.toFixed(1) : "",
+      [`${l.key}_front_w`]: isFinite(front) ? front.toFixed(1) : "", [`${l.key}_side_w`]: isFinite(side) ? side.toFixed(1) : "",
+      [`${l.key}_tape`]: $("tape-" + l.key).value,
+      [`${l.key}_bins`]: state.bins[l.key].map((b) => (b.length ? median(b).toFixed(1) : "")).join("|"),
+    });
+  }
+  store([...load(), row]);
+  showCount();
+};
+$("csv").onclick = () => {
+  const rows = load();
+  if (!rows.length) return;
+  const cols = [...new Set(rows.flatMap(Object.keys))];
+  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => JSON.stringify(r[c] ?? "")).join(","))].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "live-girth-sessions.csv";
+  a.click();
+};
+$("clear").onclick = () => { if (confirm("Xoá toàn bộ lần đo đã lưu?")) { store([]); showCount(); } };
+showCount();
+
+// Before starting, show the outline on the empty stage so it is clear where to stand.
+ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+drawGuide(canvas.width, canvas.height, "#ffffff", false);
+
+$("start").onclick = () => start();
+$("file").onchange = () => { const f = $("file").files[0]; if (f) start(URL.createObjectURL(f)); };
+// Test hook: ?src=path/to/video.mp4 runs that file on load (after the model downloads).
+const srcParam = new URLSearchParams(location.search).get("src");
+if (srcParam) start(srcParam);
+$("reset").onclick = () => { resetScan(); say(running ? "Đứng vào khung hình người" : "Nhập chiều cao rồi bấm Bắt đầu"); };
+$("camera").onchange = () => { if (running) { stop(); start(); } };
+</script>
+</body>
+</html>
