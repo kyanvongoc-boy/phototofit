@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>phototofit — Đo sức vẽ 3D</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0d; --fg: #f2f2f4; --dim: #9a9aa3; --line: rgba(255, 255, 255, 0.12); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 680px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+  p { color: var(--dim); margin: 0 0 14px; }
+  canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 14px; border: 1px solid var(--line); background: #111; margin: 16px 0; }
+  button { appearance: none; border: 0; border-radius: 999px; padding: 12px 20px; font: inherit; font-weight: 600; background: var(--fg); color: #000; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #status { color: var(--dim); font-size: 14px; min-height: 20px; margin: 12px 0 0; }
+  .sum { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .card b { display: block; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .card span { color: var(--dim); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin: 10px 0 16px; }
+  th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--dim); font-weight: 500; }
+  .note { font-size: 13px; }
+  #dev { font-size: 12px; color: var(--dim); word-break: break-word; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Đo sức vẽ 3D</h1>
+  <p>Trang này vẽ một hình người đơn giản, số tam giác tăng dần từ 0,5 triệu, và đo số khung hình mỗi giây (fps). Mất khoảng 30 giây đến 1 phút. Nên cắm sạc và đóng các tab khác.</p>
+  <div class="row">
+    <button id="go" type="button">Bắt đầu đo</button>
+    <button id="copy" class="secondary" type="button" disabled>Sao chép kết quả</button>
+  </div>
+  <div id="status" role="status"></div>
+  <canvas id="c" width="1280" height="720"></canvas>
+  <div class="sum" id="sum" hidden>
+    <div class="card"><span>Mượt (60 fps)</span><b id="s60">–</b><span>tam giác</span></div>
+    <div class="card"><span>Dùng được (30 fps)</span><b id="s30">–</b><span>tam giác</span></div>
+  </div>
+  <table id="tbl" hidden>
+    <thead><tr><th>Tam giác</th><th>fps</th><th>ms/khung</th><th>Bộ nhớ GPU</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="note">Bài thử tối giản: không vật liệu, không đổ bóng, khung vẽ cố định 1280×720 để so được giữa các máy. App thật nặng hơn vài lần. Bấm "Sao chép kết quả" rồi dán vào chat để trưởng nhóm ghi lại.</p>
+  <div id="dev"></div>
+</main>
+<script>
+// Triangle throughput of this device's GPU, for choosing 3D detail tiers (research 16).
+// A body-sized ellipsoid with ripples at a fixed 1280x720; every frame is synced with readPixels so the time is real
+// GPU work, not capped by vsync. Phones stop at 32M triangles so the tab is not killed for memory.
+const $ = (id) => document.getElementById(id);
+const c = $("c"), statusEl = $("status"), KEY = "ptf.bench.last";
+const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const LEVELS = [0.5, 1, 2, 4, 8, 16, 32, 64, 128].filter((m) => !mobile || m <= 32);
+const fmt = (n) => (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: n < 1e7 ? 1 : 0 }) + " triệu";
+const tick = () => new Promise((r) => setTimeout(r, 30));
+const gl = c.getContext("webgl2", { antialias: false, powerPreference: "high-performance" });
+let device = {}, last = null, uM = null;
+
+if (!gl) {
+  statusEl.textContent = "Trình duyệt này không có WebGL2, không đo được.";
+  $("go").disabled = true;
+} else {
+  const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+  device = {
+    renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+    ua: navigator.userAgent, cores: navigator.hardwareConcurrency, memoryGB: navigator.deviceMemory,
+    dpr: devicePixelRatio, canvas: [c.width, c.height], mobile,
+  };
+  $("dev").textContent = `${device.renderer} · ${device.cores ?? "?"} luồng CPU${device.memoryGB ? ` · ${device.memoryGB} GB RAM` : ""}`;
+  const sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(x); return x; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, `#version 300 es
+in vec3 p; uniform mat4 m; out vec3 wp;
+void main(){ wp = p; gl_Position = m * vec4(p, 1.0); }`));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, `#version 300 es
+precision highp float; in vec3 wp; out vec4 o;
+void main(){ vec3 n = normalize(cross(dFdx(wp), dFdy(wp))); float l = 0.25 + 0.75 * abs(dot(n, normalize(vec3(0.4, 0.6, 0.7)))); o = vec4(vec3(l), 1.0); }`));
+  gl.bindAttribLocation(pr, 0, "p"); gl.linkProgram(pr); gl.useProgram(pr);
+  uM = gl.getUniformLocation(pr, "m");
+  gl.enable(gl.DEPTH_TEST); gl.clearColor(0.07, 0.07, 0.08, 1);
+}
+
+function mesh(tris) {
+  const n = Math.ceil(Math.sqrt(tris / 2)) + 1, pos = new Float32Array(n * n * 3);
+  for (let j = 0; j < n; j++) {
+    const v = j / (n - 1), th = v * Math.PI, y = Math.cos(th), r = Math.sin(th) * (0.35 + 0.05 * Math.sin(v * 40));
+    for (let i = 0; i < n; i++) {
+      const u = (i / (n - 1)) * Math.PI * 2, k = 3 * (j * n + i), rr = r * (1 + 0.02 * Math.sin(u * 25) * Math.sin(v * 60));
+      pos[k] = Math.cos(u) * rr; pos[k + 1] = y; pos[k + 2] = Math.sin(u) * rr * 0.7;
+    }
+  }
+  const nt = 2 * (n - 1) * (n - 1), idx = new Uint32Array(nt * 3);
+  let q = 0;
+  for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+    const a = j * n + i, b = a + 1, c2 = a + n, d = c2 + 1;
+    idx[q++] = a; idx[q++] = c2; idx[q++] = b; idx[q++] = b; idx[q++] = c2; idx[q++] = d;
+  }
+  return { pos, idx, nt, nv: n * n };
+}
+function mul(A, B) { const r = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += A[k * 4 + j] * B[i * 4 + k]; r[i * 4 + j] = s; } return r; }
+function mat(a) {
+  const f = 1 / Math.tan(0.4), asp = c.width / c.height, nr = 0.1, fr = 10, ca = Math.cos(a), sa = Math.sin(a);
+  const P = [f / asp, 0, 0, 0, 0, f, 0, 0, 0, 0, (fr + nr) / (nr - fr), -1, 0, 0, (2 * fr * nr) / (nr - fr), 0];
+  return mul(P, [ca, 0, -sa, 0, 0, 1, 0, 0, sa, 0, ca, 0, 0, 0, -3, 1]);
+}
+const px = new Uint8Array(4), sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+
+async function measure(tris) {
+  statusEl.textContent = `Đang tạo ${fmt(tris)} tam giác…`;
+  await tick();
+  const t0 = performance.now(), M = mesh(tris), genMs = performance.now() - t0;
+  statusEl.textContent = `Đang đo ${fmt(M.nt)} tam giác…`;
+  await tick();
+  const t1 = performance.now(), vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, M.pos, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, M.idx, gl.STATIC_DRAW);
+  sync();
+  const uploadMs = performance.now() - t1, CH = 12_000_000; // indices per draw call (4M triangles)
+  const frame = (a) => {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniformMatrix4fv(uM, false, mat(a));
+    for (let o = 0; o < M.idx.length; o += CH) gl.drawElements(gl.TRIANGLES, Math.min(CH, M.idx.length - o), gl.UNSIGNED_INT, o * 4);
+  };
+  frame(0); sync();
+  const F = 20, t2 = performance.now();
+  for (let f = 0; f < F; f++) { frame(f * 0.05); sync(); }
+  const ms = (performance.now() - t2) / F;
+  gl.deleteBuffer(vb); gl.deleteBuffer(ib); gl.deleteVertexArray(vao);
+  if (gl.isContextLost()) throw new Error("mất WebGL (GPU quá tải)");
+  return { tris: M.nt, verts: M.nv, gpuMB: Math.round((M.pos.byteLength + M.idx.byteLength) / 1e6), genMs: Math.round(genMs), uploadMs: Math.round(uploadMs), msPerFrame: +ms.toFixed(2), fps: Math.round(1000 / ms) };
+}
+
+// Triangles at a target fps: interpolated between the two measured levels around it.
+function at(rows, fps) {
+  const ms = 1000 / fps, i = rows.findIndex((r) => r.fps < fps);
+  if (i === -1) return rows.length ? `≥ ${fmt(rows[rows.length - 1].tris)}` : "–";
+  if (i === 0) return `< ${fmt(rows[0].tris)}`;
+  const a = rows[i - 1], b = rows[i], k = (ms - a.msPerFrame) / (b.msPerFrame - a.msPerFrame);
+  return `≈ ${fmt(a.tris + k * (b.tris - a.tris))}`;
+}
+
+function show(rows) {
+  $("tbl").hidden = $("sum").hidden = rows.length === 0;
+  $("tbl").tBodies[0].innerHTML = rows.map((r) => `<tr><td>${fmt(r.tris)}</td><td>${r.fps}</td><td>${r.msPerFrame.toLocaleString("vi-VN")}</td><td>${r.gpuMB.toLocaleString("vi-VN")} MB</td></tr>`).join("");
+  $("s60").textContent = at(rows, 60);
+  $("s30").textContent = at(rows, 30);
+  $("copy").disabled = rows.length === 0;
+}
+function save(state) { last = state; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+
+$("go").onclick = async () => {
+  $("go").disabled = true;
+  const rows = [];
+  save({ device, rows, done: false, at: new Date().toISOString() });
+  show(rows);
+  let stop = "";
+  for (const m of LEVELS) {
+    try {
+      const r = await measure(m * 1e6);
+      rows.push(r); save({ ...last, rows }); show(rows);
+      if (r.fps < 30) { stop = `Dừng ở ${fmt(r.tris)}: đã xuống dưới 30 fps.`; break; }
+    } catch (e) { stop = `Dừng ở ${fmt(m * 1e6)}: ${e.message || e}.`; break; }
+  }
+  if (!stop) stop = mobile ? "Xong. Điện thoại/máy tính bảng dừng ở 32 triệu để không bị tắt tab vì hết bộ nhớ." : "Xong, máy vẫn trên 30 fps ở mức cao nhất (128 triệu).";
+  save({ ...last, rows, done: true, note: stop });
+  statusEl.textContent = stop;
+  $("go").disabled = false; $("go").textContent = "Đo lại";
+};
+
+$("copy").onclick = async () => {
+  const text = JSON.stringify(last, null, 1);
+  try { await navigator.clipboard.writeText(text); statusEl.textContent = "Đã sao chép. Dán vào chat nhé."; }
+  catch { statusEl.textContent = "Không sao chép tự động được. Chụp màn hình bảng kết quả gửi lại cũng được."; }
+};
+
+// A run cut short (the tab was killed for memory) still shows what it measured.
+try {
+  const prev = JSON.parse(localStorage.getItem(KEY) || "null");
+  if (prev?.rows?.length) {
+    last = prev; show(prev.rows);
+    statusEl.textContent = prev.done ? `Kết quả lần đo trước. ${prev.note ?? ""}` : `Lần đo trước dừng giữa chừng sau ${fmt(prev.rows[prev.rows.length - 1].tris)}, có thể máy hết bộ nhớ ở mức kế tiếp.`;
+  }
+} catch {}
+</script>
+</body>
+</html>
