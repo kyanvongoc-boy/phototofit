@@ -1,0 +1,368 @@
+{
+  "schema": "regna.catalog/0.1",
+  "garments": [
+    {
+      "schema": "regna.garment/0.1",
+      "id": "regna-tri-aero",
+      "name": {
+        "en": "Regna Aero tri suit",
+        "vi": "Bộ tri Regna Aero"
+      },
+      "brand": {
+        "id": "regna",
+        "name": "Regna (demo)"
+      },
+      "category": "trisuit",
+      "gender": "unisex",
+      "fit": "compression",
+      "fabric": {
+        "stretch": 0.35,
+        "thickness": 0.6,
+        "roughness": 0.42,
+        "sheen": 0.7
+      },
+      "sizes": [
+        {
+          "label": "XS",
+          "cm": {
+            "chest": 75.6,
+            "waist": 63,
+            "hip": 77.4,
+            "thighMax": 45.9,
+            "torsoLoop": 146.3
+          }
+        },
+        {
+          "label": "S",
+          "cm": {
+            "chest": 80.1,
+            "waist": 67.5,
+            "hip": 81.9,
+            "thighMax": 48.6,
+            "torsoLoop": 150.2
+          }
+        },
+        {
+          "label": "M",
+          "cm": {
+            "chest": 84.6,
+            "waist": 72,
+            "hip": 86.4,
+            "thighMax": 51.3,
+            "torsoLoop": 154.1
+          }
+        },
+        {
+          "label": "L",
+          "cm": {
+            "chest": 90,
+            "waist": 77.4,
+            "hip": 90.9,
+            "thighMax": 54,
+            "torsoLoop": 158
+          }
+        },
+        {
+          "label": "XL",
+          "cm": {
+            "chest": 95.4,
+            "waist": 82.8,
+            "hip": 95.4,
+            "thighMax": 56.7,
+            "torsoLoop": 161.9
+          }
+        }
+      ],
+      "sizeBy": [
+        "chest",
+        "waist",
+        "hip",
+        "torsoLoop"
+      ],
+      "images": {
+        "front": {
+          "src": "trisuit-front.svg",
+          "w": 600,
+          "h": 900,
+          "view": "front",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "crotchY": 604,
+          "hemY": 745
+        },
+        "back": {
+          "src": "trisuit-back.svg",
+          "w": 600,
+          "h": 900,
+          "view": "back",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "crotchY": 604,
+          "hemY": 745
+        }
+      },
+      "tryon": {
+        "cut": {
+          "top": {
+            "at": "neck",
+            "drop": 1,
+            "frontDrop": 2.5
+          },
+          "sleeve": 12,
+          "hem": {
+            "at": "crotch",
+            "cm": 20
+          }
+        },
+        "color": "#1b2a4a",
+        "credit": {
+          "en": "Illustration drawn by Regna (SVG), project-owned",
+          "vi": "Hình minh hoạ do Regna tự vẽ (SVG), thuộc dự án"
+        }
+      },
+      "source": {
+        "kind": "manual",
+        "capturedAt": "2026-10-24",
+        "by": "regna-tryon",
+        "note": "Demo garments drawn by Regna (SVG); sizes made up from the ease rules of research 08",
+        "sample": true
+      }
+    },
+    {
+      "schema": "regna.garment/0.1",
+      "id": "regna-run-tee",
+      "name": {
+        "en": "Regna Run tee",
+        "vi": "Áo chạy Regna Run"
+      },
+      "brand": {
+        "id": "regna",
+        "name": "Regna (demo)"
+      },
+      "category": "runningTop",
+      "gender": "unisex",
+      "fit": "regular",
+      "fabric": {
+        "stretch": 0.15,
+        "thickness": 0.8,
+        "roughness": 0.85,
+        "sheen": 0.25
+      },
+      "sizes": [
+        {
+          "label": "S",
+          "cm": {
+            "chest": 96,
+            "waist": 92,
+            "hip": 96,
+            "upperArm": 33
+          }
+        },
+        {
+          "label": "M",
+          "cm": {
+            "chest": 102,
+            "waist": 98,
+            "hip": 102,
+            "upperArm": 35
+          }
+        },
+        {
+          "label": "L",
+          "cm": {
+            "chest": 108,
+            "waist": 104,
+            "hip": 108,
+            "upperArm": 37
+          }
+        },
+        {
+          "label": "XL",
+          "cm": {
+            "chest": 114,
+            "waist": 110,
+            "hip": 114,
+            "upperArm": 39
+          }
+        }
+      ],
+      "sizeBy": [
+        "chest"
+      ],
+      "images": {
+        "front": {
+          "src": "tee-front.svg",
+          "w": 600,
+          "h": 900,
+          "view": "front",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "hemY": 585
+        },
+        "back": {
+          "src": "tee-back.svg",
+          "w": 600,
+          "h": 900,
+          "view": "back",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "hemY": 585
+        }
+      },
+      "tryon": {
+        "cut": {
+          "top": {
+            "at": "neck",
+            "drop": 1,
+            "frontDrop": 3
+          },
+          "sleeve": 22,
+          "hem": {
+            "at": "hip",
+            "cm": 2
+          }
+        },
+        "color": "#c7cbd1",
+        "credit": {
+          "en": "Illustration drawn by Regna (SVG), project-owned",
+          "vi": "Hình minh hoạ do Regna tự vẽ (SVG), thuộc dự án"
+        }
+      },
+      "source": {
+        "kind": "manual",
+        "capturedAt": "2026-10-24",
+        "by": "regna-tryon",
+        "note": "Demo garments drawn by Regna (SVG); sizes made up from the ease rules of research 08",
+        "sample": true
+      }
+    },
+    {
+      "schema": "regna.garment/0.1",
+      "id": "regna-tri-shorts",
+      "name": {
+        "en": "Regna tri shorts",
+        "vi": "Quần tri Regna"
+      },
+      "brand": {
+        "id": "regna",
+        "name": "Regna (demo)"
+      },
+      "category": "triShorts",
+      "gender": "unisex",
+      "fit": "compression",
+      "fabric": {
+        "stretch": 0.35,
+        "thickness": 0.7,
+        "roughness": 0.5,
+        "sheen": 0.55
+      },
+      "sizes": [
+        {
+          "label": "XS",
+          "cm": {
+            "waist": 63,
+            "hip": 77.4,
+            "thighMax": 45.9
+          }
+        },
+        {
+          "label": "S",
+          "cm": {
+            "waist": 67.5,
+            "hip": 81.9,
+            "thighMax": 48.6
+          }
+        },
+        {
+          "label": "M",
+          "cm": {
+            "waist": 72,
+            "hip": 86.4,
+            "thighMax": 51.3
+          }
+        },
+        {
+          "label": "L",
+          "cm": {
+            "waist": 77.4,
+            "hip": 90.9,
+            "thighMax": 54
+          }
+        },
+        {
+          "label": "XL",
+          "cm": {
+            "waist": 82.8,
+            "hip": 95.4,
+            "thighMax": 56.7
+          }
+        }
+      ],
+      "sizeBy": [
+        "waist",
+        "hip",
+        "thighMax"
+      ],
+      "images": {
+        "front": {
+          "src": "shorts-front.svg",
+          "w": 600,
+          "h": 900,
+          "view": "front",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "crotchY": 604,
+          "hemY": 757
+        },
+        "back": {
+          "src": "shorts-back.svg",
+          "w": 600,
+          "h": 900,
+          "view": "back",
+          "rights": "own-photo",
+          "neck": [300, 110],
+          "waistY": 420,
+          "chestHalf": 130,
+          "crotchY": 604,
+          "hemY": 757
+        }
+      },
+      "tryon": {
+        "cut": {
+          "top": {
+            "at": "waist",
+            "cm": 3
+          },
+          "sleeve": null,
+          "hem": {
+            "at": "crotch",
+            "cm": 22
+          }
+        },
+        "color": "#16181d",
+        "credit": {
+          "en": "Illustration drawn by Regna (SVG), project-owned",
+          "vi": "Hình minh hoạ do Regna tự vẽ (SVG), thuộc dự án"
+        }
+      },
+      "source": {
+        "kind": "manual",
+        "capturedAt": "2026-10-24",
+        "by": "regna-tryon",
+        "note": "Demo garments drawn by Regna (SVG); sizes made up from the ease rules of research 08",
+        "sample": true
+      }
+    }
+  ],
+  "charts": []
+}

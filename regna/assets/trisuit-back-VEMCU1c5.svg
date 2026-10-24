@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <!-- Regna Aero tri suit, back (seen from behind). Same anchors as the front. -->
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3fb6b0"/><stop offset="0.55" stop-color="#2a8c9a"/><stop offset="1" stop-color="#1f5f7a"/>
+    </linearGradient>
+    <clipPath id="suit"><path id="shape" d="M258,104 Q300,116 342,104 L446,118 L500,180 L472,205 L428,170 L414,300 L410,420 L438,547 L442,600 L435,745 L310,745 L303,612 Q300,604 297,612 L290,745 L165,745 L158,600 L162,547 L190,420 L186,300 L172,170 L128,205 L100,180 L154,118 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#suit)">
+    <rect width="600" height="900" fill="#1b2a4a"/>
+    <path d="M60,150 L214,176 L206,420 L196,547 L186,760 L60,760 Z" fill="url(#panel)"/>
+    <path d="M540,150 L386,176 L394,420 L404,547 L414,760 L540,760 Z" fill="url(#panel)"/>
+    <text x="300" y="196" text-anchor="middle" font-family="Montserrat, Arial, sans-serif" font-weight="600" font-size="20" letter-spacing="7" fill="#eaf2f6">REGNA</text>
+    <rect x="228" y="432" width="64" height="58" rx="6" fill="#22345a" stroke="#3fb6b0" stroke-width="2"/>
+    <rect x="308" y="432" width="64" height="58" rx="6" fill="#22345a" stroke="#3fb6b0" stroke-width="2"/>
+    <rect x="270" y="300" width="60" height="4" fill="#9fe3dc"/>
+    <rect x="0" y="726" width="600" height="20" fill="#0d1424"/>
+    <path d="M128,205 L100,180 L154,118 L172,170 Z" fill="#14203a"/>
+    <path d="M472,205 L500,180 L446,118 L428,170 Z" fill="#14203a"/>
+  </g>
+  <use href="#shape" fill="none" stroke="#0a0f1c" stroke-width="2"/>
+</svg>
